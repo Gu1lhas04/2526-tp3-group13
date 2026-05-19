@@ -1,6 +1,8 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 
 #include "print.h"
 #include "bunnyIO.h"
@@ -9,7 +11,7 @@
 #include "bunnyMIP.h"
 #include "device-bunnyMIP.h"
 
-inline float d2r(float angle) { return angle * M_PI / 360.0; }
+inline float d2r(float angle) { return angle * M_PI / 180.0; }
 
 void generate_rotation_matrix(float pitch, float yaw, float roll, float* R, bool inverse = false) {
     float cp = std::cos(pitch); float sp = std::sin(pitch);
@@ -48,6 +50,24 @@ void generate_rotation_matrix(float pitch, float yaw, float roll, float* R, bool
 int main(int argc, char* argv[]) {
     print("CLE2026 - BunnyMIP\n");
 
+    // Default parameters
+    uint16_t threshold = 1 << 15;
+    float sigma = 1.0f;
+    float roll = 0.0f;
+    float pitch = 0.0f;
+    float yaw = 0.0f;
+
+    // CLI argument parsing
+    for (int i = 1; i < argc - 1; i++) {
+        if (strcmp(argv[i], "--threshold") == 0) threshold = (uint16_t)atoi(argv[++i]);
+        else if (strcmp(argv[i], "--sigma") == 0) sigma = (float)atof(argv[++i]);
+        else if (strcmp(argv[i], "--roll") == 0) roll = (float)atof(argv[++i]);
+        else if (strcmp(argv[i], "--pitch") == 0) pitch = (float)atof(argv[++i]);
+        else if (strcmp(argv[i], "--yaw") == 0) yaw = (float)atof(argv[++i]);
+    }
+
+    print("Parameters: threshold=%d sigma=%.2f roll=%.1f pitch=%.1f yaw=%.1f\n", threshold, sigma, roll, pitch, yaw);
+
     uint16_t* volume = loadBunnyCT("data");
 
     // Raster output when running on the host
@@ -56,10 +76,7 @@ int main(int argc, char* argv[]) {
     uint16_t* d_raster = new uint16_t[kBunnySize*kBunnySize];
 
     float R[3*3];
-    generate_rotation_matrix(d2r(0), d2r(0), d2r(0), R);
-
-    uint16_t threshold = 1 << 15;
-    float sigma = 1.0;
+    generate_rotation_matrix(d2r(pitch), d2r(yaw), d2r(roll), R);
 
     // CPU
     host_bunny_mip(volume, threshold, sigma, R, h_raster);
