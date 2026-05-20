@@ -41,6 +41,44 @@ __global__ void gaussian_blur_kernel(const uint16_t* input, uint16_t* output, in
 }
 
 
+// Kernel 3: Maximum Intensity Projection (MIP) (Each thread calculates one output pixel)
+__global__ void rotated_mip_kernel(const uint16_t* volume, uint16_t* image, int N, int M, const float* R, int ray_range) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= N || y >= N) return;
+
+    uint16_t maxIntensity = 0;
+
+    // 1. Center the 2D screen coordinates
+    float u = x - N / 2.0f;
+    float v = y - N / 2.0f;
+
+    // 2. Step the ray through the volume
+    for (int step = -ray_range; step < ray_range; step++) {
+        float w = (float)step;
+
+        // 3. Transform point (u, v, w) to volume space
+        float rotX = R[0] * u + R[1] * v + R[2] * w + N / 2.0f;
+        float rotY = R[3] * u + R[4] * v + R[5] * w + N / 2.0f;
+        float rotZ = R[6] * u + R[7] * v + R[8] * w + M / 2.0f;
+
+        // 4. Boundary Check
+        if (rotX >= 0.0f && rotX < (float)N &&
+            rotY >= 0.0f && rotY < (float)N &&
+            rotZ >= 0.0f && rotZ < (float)M) {
+            
+            size_t idx = (size_t)((int)rotZ * N * N + (int)rotY * N + (int)rotX);
+            uint16_t val = volume[idx];
+            if (val > maxIntensity) {
+                maxIntensity = val;
+            }
+        }
+    }
+    image[y * N + x] = maxIntensity;
+}
+
+
 // Device entry point
 void device_bunny_mip(const uint16_t* input, uint16_t threshold, float sigma, const float* R, uint16_t* output)
 {
@@ -98,12 +136,26 @@ void device_bunny_mip(const uint16_t* input, uint16_t threshold, float sigma, co
     gaussian_blur_kernel<<<gridDim3D, blockDim3D>>>(d_volume, d_blurred, N, M, d_kernel);
     cudaDeviceSynchronize();
 
-    // Step 3: MIP (to be implemented by Person B)
+    // Step 3: MIP
     print("  gpu: generating MIP\n");
+    uint16_t* d_raster;
+    cudaMalloc(&d_raster, N * N * sizeof(uint16_t));
+
+    int ray_range = (int)(sqrtf(N*N + N*N + M*M) / 2.0f) + 1;
+    dim3 blockDim2D(16, 16);
+    dim3 gridDim2D((N + blockDim2D.x - 1) / blockDim2D.x, (N + blockDim2D.y - 1) / blockDim2D.y);
+
+    rotated_mip_kernel<<<gridDim2D, blockDim2D>>>(d_blurred, d_raster, N, M, d_R, ray_range);
+    cudaDeviceSynchronize();
+
+    // Transfer output raster back to CPU
+    cudaMemcpy(output, d_raster, N * N * sizeof(uint16_t), cudaMemcpyDeviceToHost);
 
     // Cleanup
     cudaFree(d_volume);
     cudaFree(d_blurred);
     cudaFree(d_kernel);
     cudaFree(d_R);
+    cudaFree(d_raster);
 }
+
