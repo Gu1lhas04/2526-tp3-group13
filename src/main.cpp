@@ -1,6 +1,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -56,6 +57,7 @@ int main(int argc, char* argv[]) {
     float roll = 0.0f;
     float pitch = 0.0f;
     float yaw = 0.0f;
+    int num_frames = 0;
 
     // CLI argument parsing
     for (int i = 1; i < argc - 1; i++) {
@@ -64,9 +66,11 @@ int main(int argc, char* argv[]) {
         else if (strcmp(argv[i], "--roll") == 0) roll = (float)atof(argv[++i]);
         else if (strcmp(argv[i], "--pitch") == 0) pitch = (float)atof(argv[++i]);
         else if (strcmp(argv[i], "--yaw") == 0) yaw = (float)atof(argv[++i]);
+        else if (strcmp(argv[i], "--frames") == 0) num_frames = atoi(argv[++i]);
     }
 
-    print("Parameters: threshold=%d sigma=%.2f roll=%.1f pitch=%.1f yaw=%.1f\n", threshold, sigma, roll, pitch, yaw);
+    print("Parameters: threshold=%d sigma=%.2f roll=%.1f pitch=%.1f yaw=%.1f frames=%d\n",
+          threshold, sigma, roll, pitch, yaw, num_frames);
 
     uint16_t* volume = loadBunnyCT("data");
 
@@ -95,6 +99,36 @@ int main(int argc, char* argv[]) {
 
     savePGM16("output/bunnyMIP_cpu.pgm", h_raster, kBunnySize, kBunnySize);
     savePGM16("output/bunnyMIP_gpu.pgm", d_raster, kBunnySize, kBunnySize);
+
+    // Video generation
+    if (num_frames > 0) {
+        print("\nGenerating video with %d frames...\n", num_frames);
+
+        // Build one rotation matrix per frame, rotating yaw evenly over 360 degrees
+        float* R_all = new float[num_frames * 9];
+        float step = 360.0f / num_frames;
+        for (int i = 0; i < num_frames; i++)
+            generate_rotation_matrix(d2r(pitch), d2r(yaw + i * step), d2r(roll), R_all + i * 9);
+
+        uint16_t* frames = new uint16_t[(size_t)num_frames * kBunnySize * kBunnySize];
+        device_bunny_generate_video(volume, threshold, sigma, R_all, num_frames, frames);
+
+        // Save each frame as a PGM file
+        for (int i = 0; i < num_frames; i++) {
+            char filename[64];
+            snprintf(filename, sizeof(filename), "output/frame_%03d.pgm", i);
+            savePGM16(filename, frames + (size_t)i * kBunnySize * kBunnySize, kBunnySize, kBunnySize);
+        }
+
+        // Combine frames into a video using ffmpeg
+        print("Running ffmpeg...\n");
+        system("ffmpeg -y -framerate 24 -i output/frame_%03d.pgm "
+               "-vf scale=512:512 -c:v libx264 -pix_fmt yuv420p output/bunny.mp4");
+        print("Video saved to output/bunny.mp4\n");
+
+        delete[] R_all;
+        delete[] frames;
+    }
 
     delete [] volume;
     return 0;
