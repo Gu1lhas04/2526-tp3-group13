@@ -149,18 +149,25 @@ void device_bunny_mip(const uint16_t* input, uint16_t threshold, float sigma, co
     cudaMemcpy(d_kernel, h_kernel, 27 * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_R, R, 9 * sizeof(float), cudaMemcpyHostToDevice);
 
+    cudaEvent_t e0, e1, e2, e3;
+    cudaEventCreate(&e0); cudaEventCreate(&e1);
+    cudaEventCreate(&e2); cudaEventCreate(&e3);
+
     // Step 1: Threshold
     print("  gpu: applying threshold\n");
     int total_voxels = N * N * M;
     int threads1D = 256;
     int blocks1D = (total_voxels + threads1D - 1) / threads1D;
+    cudaEventRecord(e0);
     threshold_kernel<<<blocks1D, threads1D>>>(d_volume, total_voxels, threshold);
+    cudaEventRecord(e1);
 
     // Step 2: Gaussian Blur
     print("  gpu: applying filter\n");
     dim3 blockDim3D(8, 8, 8);
     dim3 gridDim3D((N + blockDim3D.x - 1) / blockDim3D.x, (N + blockDim3D.y - 1) / blockDim3D.y, (M + blockDim3D.z - 1) / blockDim3D.z);
     gaussian_blur_kernel<<<gridDim3D, blockDim3D>>>(d_volume, d_blurred, N, M, d_kernel);
+    cudaEventRecord(e2);
 
     // Step 3: MIP
     print("  gpu: generating MIP\n");
@@ -172,8 +179,20 @@ void device_bunny_mip(const uint16_t* input, uint16_t threshold, float sigma, co
     dim3 gridDim2D((N + blockDim2D.x - 1) / blockDim2D.x, (N + blockDim2D.y - 1) / blockDim2D.y);
 
     rotated_mip_kernel<<<gridDim2D, blockDim2D>>>(d_blurred, d_raster, N, M, d_R, ray_range);
+    cudaEventRecord(e3);
+    cudaEventSynchronize(e3);
 
-    // Transfer output raster back to CPU (cudaMemcpy implicitly synchronizes)
+    float ms_thresh, ms_blur, ms_mip;
+    cudaEventElapsedTime(&ms_thresh, e0, e1);
+    cudaEventElapsedTime(&ms_blur,   e1, e2);
+    cudaEventElapsedTime(&ms_mip,    e2, e3);
+    print("  gpu kernel times: threshold=%.2f ms  blur=%.2f ms  mip=%.2f ms\n",
+          ms_thresh, ms_blur, ms_mip);
+
+    cudaEventDestroy(e0); cudaEventDestroy(e1);
+    cudaEventDestroy(e2); cudaEventDestroy(e3);
+
+    // Transfer output raster back to CPU
     cudaMemcpy(output, d_raster, N * N * sizeof(uint16_t), cudaMemcpyDeviceToHost);
 
     // Cleanup

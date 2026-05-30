@@ -100,11 +100,23 @@ After each run, GPU and CPU outputs are compared pixel by pixel. A pixel is flag
 
 Benchmarked on **banana.ua.pt** — GPU: NVIDIA GeForce GTX 1660 (6 GB VRAM, CUDA 10.2), CPU: Intel Xeon (Ubuntu 18.04).
 
+### Per-kernel breakdown (threshold=10000, sigma=1.0, yaw=0°)
+
+| Stage | CPU time | GPU kernel time | Speedup |
+|---|---|---|---|
+| Threshold | ~66 ms | 2.40 ms | ~27x |
+| Gaussian Blur | ~4200 ms | 24.05 ms | ~175x |
+| MIP Projection | ~2430 ms | 1.80 ms | ~1350x |
+
+### End-to-end (includes Host↔Device transfers + memory allocation)
+
 | Configuration | CPU time | GPU time | Speedup |
 |---|---|---|---|
-| threshold=10000, sigma=1.0, yaw=0° | 6923.8 ms | 45.3 ms | **152.8x** |
+| threshold=10000, sigma=1.0, yaw=0° | 6702.4 ms | 45.2 ms | **148.2x** |
 
-The GPU time covers the full pipeline: Host→Device transfer (180 MiB), the three kernels, and Device→Host transfer. CUDA context initialization is excluded via a warmup call before timing, following standard GPU benchmarking practice. Intermediate `cudaDeviceSynchronize` calls between kernels were removed — kernels on the same stream execute in order automatically, and the synchronization point before the final `cudaMemcpy` is sufficient.
+The GPU end-to-end time covers the full pipeline: Host→Device transfer (180 MiB), the three kernels, and Device→Host transfer. CUDA context initialization is excluded via a warmup call before timing, following standard GPU benchmarking practice.
+
+Per-kernel times are measured with `cudaEvent` pairs around each kernel launch, providing precise GPU-side timing independent of PCIe transfer overhead.
 
 The three stages parallelised on the GPU:
 - **Threshold** — trivially parallel (one thread per voxel, ~94.5 M threads)
