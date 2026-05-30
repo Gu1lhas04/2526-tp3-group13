@@ -84,6 +84,10 @@ Each thread reads the 3×3×3 neighborhood of its voxel and computes a weighted 
 
 Each thread handles one output pixel. It casts a ray through the volume and keeps the highest intensity it finds. The rotation matrix R (built from roll/pitch/yaw) maps screen coordinates into volume space for the ray traversal. Ray length comes from the volume diagonal so nothing gets clipped at any rotation angle. 2D grid, 16×16 threads per block.
 
+### `multi_mip_kernel` (innovation)
+
+Extends `rotated_mip_kernel` to generate N frames in a single kernel call. The grid adds a third dimension: `blockIdx.z` selects the frame, and each frame uses its own rotation matrix from the array `R_all`. All frames are computed fully in parallel on the GPU — no loop on the host side. Output is a contiguous `N × 512 × 512` buffer. Used by `--frames N` to produce the rotating video.
+
 ---
 
 ## Validation
@@ -98,13 +102,9 @@ Benchmarked on **banana.ua.pt** — GPU: NVIDIA GeForce GTX 1660 (6 GB VRAM, CUD
 
 | Configuration | CPU time | GPU time | Speedup |
 |---|---|---|---|
-| threshold=10000, sigma=1.0, yaw=0° | 6730.7 ms | 837.0 ms | **8.0x** |
-| threshold=10000, sigma=1.0, yaw=45° | 6321.1 ms | 844.4 ms | **7.5x** |
-| threshold=10000, sigma=1.0, yaw=90° | 4669.5 ms | 842.3 ms | **5.5x** |
+| threshold=10000, sigma=1.0, yaw=0° | 6923.8 ms | 45.3 ms | **152.8x** |
 
-The GPU time is roughly constant (~840 ms) across all rotations because all 512×512 output threads always run, regardless of angle. The CPU time drops at yaw=90° because rays exit the thinner axis of the volume sooner, shortening the inner loop.
-
-The measured speedup (~8x) represents the full wall-clock pipeline including PCIe memory transfers (180 MiB Host→Device + raster Device→Host). The pure compute speedup of the kernels is higher; the PCIe bottleneck limits the overall gain observed in wall-clock time.
+The GPU time covers the full pipeline: Host→Device transfer (180 MiB), the three kernels, and Device→Host transfer. CUDA context initialization is excluded via a warmup call before timing, following standard GPU benchmarking practice. Intermediate `cudaDeviceSynchronize` calls between kernels were removed — kernels on the same stream execute in order automatically, and the synchronization point before the final `cudaMemcpy` is sufficient.
 
 The three stages parallelised on the GPU:
 - **Threshold** — trivially parallel (one thread per voxel, ~94.5 M threads)

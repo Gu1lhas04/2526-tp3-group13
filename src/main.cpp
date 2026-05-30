@@ -1,6 +1,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cuda_runtime.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -82,6 +83,9 @@ int main(int argc, char* argv[]) {
 
     float R[3*3];
     generate_rotation_matrix(d2r(pitch), d2r(yaw), d2r(roll), R);
+
+    // CUDA context warmup — prevents first-call initialization from inflating GPU time
+    { void* tmp; cudaMalloc(&tmp, 1); cudaFree(tmp); cudaDeviceSynchronize(); }
 
     // CPU
     auto t_cpu_start = std::chrono::high_resolution_clock::now();
