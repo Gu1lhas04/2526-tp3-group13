@@ -1,4 +1,5 @@
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -83,18 +84,28 @@ int main(int argc, char* argv[]) {
     generate_rotation_matrix(d2r(pitch), d2r(yaw), d2r(roll), R);
 
     // CPU
+    auto t_cpu_start = std::chrono::high_resolution_clock::now();
     host_bunny_mip(volume, threshold, sigma, R, h_raster);
+    auto t_cpu_end = std::chrono::high_resolution_clock::now();
+
     // GPU (CUDA)
+    auto t_gpu_start = std::chrono::high_resolution_clock::now();
     device_bunny_mip(volume, threshold, sigma , R, d_raster);
+    auto t_gpu_end = std::chrono::high_resolution_clock::now();
 
     int raster_size = kBunnySize * kBunnySize;
     int diff = 0;
     for (int i = 0; i < raster_size; i++) {
-        int local_diff = abs((int)h_raster[i]) - ((int)d_raster[i]);
+        int local_diff = abs((int)h_raster[i] - (int)d_raster[i]);
         if (local_diff > 2)
             diff = diff + 1;
     }
 
+    double cpu_ms = std::chrono::duration<double, std::milli>(t_cpu_end - t_cpu_start).count();
+    double gpu_ms = std::chrono::duration<double, std::milli>(t_gpu_end - t_gpu_start).count();
+    print("\n>> CPU time: %.1f ms\n", cpu_ms);
+    print(">> GPU time: %.1f ms\n", gpu_ms);
+    print(">> Speedup:  %.1fx\n", cpu_ms / gpu_ms);
     print("\n>> Output difference: %.2f%%\n", (diff / (float)raster_size) * 100.0);
 
     savePGM16("output/bunnyMIP_cpu.pgm", h_raster, kBunnySize, kBunnySize);
