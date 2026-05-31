@@ -5,7 +5,7 @@ CXX      := nvcc
 # CXXFLAGS: General compiler flags
 # DEPFLAGS: Specifically for dependency generation
 # LDFLAGS:  Specifically for the linking phase
-CXXFLAGS := -Iinclude -O3
+CXXFLAGS := -Iinclude -O3 -Xcompiler -Wno-unused-result
 DEPFLAGS = -MMD
 
 TARGET   := bunnyMIP

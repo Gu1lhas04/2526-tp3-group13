@@ -112,11 +112,38 @@ Benchmarked on **banana.ua.pt** — GPU: NVIDIA GeForce GTX 1660 (6 GB VRAM, CUD
 
 | Configuration | CPU time | GPU time | Speedup |
 |---|---|---|---|
-| threshold=10000, sigma=1.0, yaw=0° | 6702.4 ms | 45.2 ms | **148.2x** |
+| threshold=10000, sigma=1.0, yaw=0° | 6853 ms | 45.4 ms | **151x** |
+| threshold=10000, sigma=1.0, yaw=90° | 4777 ms | 49.1 ms | **97x** |
+| threshold=10000, sigma=1.0, yaw=180° | 6906 ms | 45.4 ms | **152x** |
+| threshold=10000, sigma=1.0, pitch=45° | 5010 ms | 45.3 ms | **110x** |
 
 The GPU end-to-end time covers the full pipeline: Host→Device transfer (180 MiB), the three kernels, and Device→Host transfer. CUDA context initialization is excluded via a warmup call before timing, following standard GPU benchmarking practice.
 
 Per-kernel times are measured with `cudaEvent` pairs around each kernel launch, providing precise GPU-side timing independent of PCIe transfer overhead.
+
+### Effect of rotation on MIP kernel time
+
+| Configuration | CPU time | GPU time | Speedup | MIP kernel |
+|---|---|---|---|---|
+| yaw=0° | 6853 ms | 45.4 ms | 151x | 1.81 ms |
+| yaw=45° | 6140 ms | 51.3 ms | 120x | 7.70 ms |
+| yaw=90° | 4895 ms | 49.3 ms | 99x | 5.68 ms |
+| yaw=180° | 6906 ms | 45.4 ms | 152x | 1.81 ms |
+| pitch=30° | 4887 ms | 45.3 ms | 108x | 1.80 ms |
+| pitch=45° | 5010 ms | 45.3 ms | 110x | 1.83 ms |
+| roll=45° | 6562 ms | 54.5 ms | 120x | 10.96 ms |
+
+The rotation angle significantly affects MIP kernel performance due to memory access patterns. At yaw=0°/180°, rays step along the Z axis (depth=361), producing a consistent access pattern. At yaw=90°, rays traverse the X axis and the GPU faces non-coalesced memory access, making the MIP kernel ~3x slower. roll=45° is the worst case (10.96 ms) because rays travel diagonally across both X and Y simultaneously. The CPU shows the inverse behaviour for some angles: yaw=90° is faster on CPU because sequential ray steps happen to be stride-1 in memory.
+
+### Effect of sigma on performance
+
+| sigma | CPU time | GPU time | Speedup | Blur kernel |
+|---|---|---|---|---|
+| 0.5 | 6756 ms | 45.2 ms | 149x | 24.04 ms |
+| 1.0 | 6657 ms | 45.2 ms | 147x | 24.05 ms |
+| 2.0 | 6736 ms | 45.3 ms | 149x | 24.06 ms |
+
+Sigma does not affect execution time. The Gaussian blur kernel always performs exactly 27 multiply-add operations per voxel regardless of sigma — sigma only changes the weight values, not the amount of work.
 
 The three stages parallelised on the GPU:
 - **Threshold** — trivially parallel (one thread per voxel, ~94.5 M threads)

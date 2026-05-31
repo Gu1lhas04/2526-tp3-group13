@@ -137,7 +137,7 @@ int main(int argc, char* argv[]) {
 
         // Combine frames into a video using ffmpeg
         print("Running ffmpeg...\n");
-        system("ffmpeg -y -framerate 24 -i output/frame_%03d.pgm "
+        (void)system("ffmpeg -y -framerate 24 -i output/frame_%03d.pgm "
                "-vf scale=512:512 -c:v libx264 -pix_fmt yuv420p output/bunny.mp4");
         print("Video saved to output/bunny.mp4\n");
 
